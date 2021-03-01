@@ -1,3 +1,10 @@
 name: SpeedrunAssistant
 main: com.troy.speed.SpeedrunAssistant
 version: 1.16.5-0.1.0
+author: Troy Neubauer
+commands:
+   basic:
+      description: Regenerates the world, nether and end using a new random seed
+      usage: /regen
+      permission: operator
+      permission-message: You don't have <permission>

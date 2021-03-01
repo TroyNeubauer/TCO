@@ -5,9 +5,8 @@ buildscript {
 
 repositories {
   mavenCentral()
-  maven {
-    url "https://hub.spigotmc.org/nexus/content/repositories/snapshots/"
-  }
+  maven { url = 'https://oss.sonatype.org/content/repositories/snapshots' }
+  maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
 }
 
 group = "com.troy"
@@ -23,7 +22,12 @@ configurations {
 // Use the shade configuration to include the dependency's class files in your final JAR
 
 dependencies {
-  compileOnly "org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT"
+  compileOnly 'org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHO' // The Spigot API with no shadowing. Requires the OSS repo.
+  compileOnly 'org.bukkit:bukkit:1.16.5-R0.1-SNAPSHO' // The Bukkit API with no shadowing.
+  compileOnly 'org.spigotmc:spigot:1.16.5-R0.1-SNAPSHO' // The full Spigot server with no shadowing. Requires mavenLocal.
+  compileOnly 'org.bukkit:craftbukkit:1.16.5-R0.1-SNAPSHO' // The full CraftBukkit server with no shadowing. Requires mavenLocal.
+
+  //compileOnly "org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT"
   // shade "org.somewebsite:some-dependency:version"
 }
 
