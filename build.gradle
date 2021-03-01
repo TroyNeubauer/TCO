@@ -1,0 +1,36 @@
+apply plugin: "java"
+
+buildscript {
+}
+
+repositories {
+  mavenCentral()
+  maven {
+    url "https://hub.spigotmc.org/nexus/content/repositories/snapshots/"
+  }
+}
+
+group = "com.troy"
+version = "0.1"
+sourceCompatibility = "1.6"
+targetCompatibility = "1.6"
+
+configurations {
+  shade
+  compile.extendsFrom shade
+}
+
+// Use the shade configuration to include the dependency's class files in your final JAR
+
+dependencies {
+  compileOnly "org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT"
+  // shade "org.somewebsite:some-dependency:version"
+}
+
+jar {
+  configurations.shade.each { dep ->
+    from(project.zipTree(dep)) {
+      exclude 'META-INF', 'META-INF/**'
+    }
+  }
+}
