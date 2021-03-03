@@ -1,86 +1,176 @@
 package com.troy.speed;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.CopyOption;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Random;
+import java.util.UUID;
 
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerKickEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public class SpeedrunAssistant extends JavaPlugin {
+public class SpeedrunAssistant extends JavaPlugin implements Listener {
 
 	private Deque<String> preppedWorlds = new ArrayDeque<String>();
+	
+	//A universe is a overworld-nether-end triple that are linked through their portals and inaccessible from others
+	static class UniverseData {
+		ItemStack[] inventory;
+		Location lastPos;
+		float health, saturation;
+		int hunger;
+	}
+	
+	private String currentWorld;
+	
+	//Maps universe names to a map of players and their data
+	private final HashMap<String, HashMap<UUID, UniverseData>> data = new HashMap<String, HashMap<UUID, UniverseData>>();
 
 	@Override
 	public void onEnable() {
 		super.onEnable();
 
 		getCommand("regen").setExecutor(regenCommand);
+		
+		for (World world : getServer().getWorlds()) {
+			if (world.getEnvironment() == World.Environment.NORMAL) {
+				currentWorld = world.getName();
+			}
+		}
+		System.out.println("Picked world: " + currentWorld);
+		getServer().getPluginManager().registerEvents(this, this);
+		for (Player player : getServer().getOnlinePlayers()) {
+			setPlayerUniverse(currentWorld, player);
+		}
 	}
+	
+	private World getOverworldForPlayer(Player player) {
+		World current = player.getWorld();
+		if (current.getEnvironment() == World.Environment.NORMAL) {
+			return current;
+		} else {
+			String name = current.getName();
+			name = name.replaceAll(NETHER_SUFFIX, "");
+			name = name.replaceAll(THE_END_SUFFIX, "");
+			World result = getServer().getWorld(name);
+			if (result == null) {
+				throw new RuntimeException("Unable to get matching overworld name: " + name + ". From player " + player.getDisplayName() + " current non-overworld name: " + current.getName());
+			}
+			return result;
+		}
+	}
+	
+	private void updateUniverseData(Player player, UniverseData data) {
+		data.inventory = player.getInventory().getContents();
+		Location bedPos = player.getBedSpawnLocation();
+		data.lastPos = player.getLocation();
+		data.health = (float) player.getHealth();
+		data.saturation = player.getSaturation();
+		data.hunger = player.getFoodLevel();
+	}
+
+	private boolean hasData(String universeName, Player player) {
+		HashMap<UUID, UniverseData> players = data.get(universeName);
+		if (players == null) {
+			return false;
+		}
+		UniverseData data = players.get(player.getUniqueId());
+		if (data == null) {
+			return false;
+		}
+		return true;
+	}
+	
+	//Gets or creates the universe data for a player. If the player has no data in this universe then fields in the returned object will be uninitialized
+	private UniverseData getData(String universeName, Player player) {
+		HashMap<UUID, UniverseData> players = data.get(universeName);
+		if (players == null) {
+			players = new HashMap<UUID, UniverseData>();
+			data.put(universeName, players);
+		}
+		UniverseData data = players.get(player.getUniqueId());
+		if (data == null) {
+			data = new UniverseData();
+			players.put(player.getUniqueId(), data);
+		}
+		return data;
+	}
+	
+	//Gets the data associated a player for the universe they are in
+	private UniverseData getData(Player player) {
+		return getData(getOverworldForPlayer(player).getName(), player);
+	}
+	
 
 	@Override
 	public void onDisable() {
 		super.onDisable();
 	}
-
-	private World renameWorld(String srcName, String destName) {
-		System.out.println("renaming: " + srcName + " -> " + destName);
-
-		//If we are replacing an existing world then kick all the players off first
-		World old = getServer().getWorld(destName);
-		long seed = old.getSeed();
-		World.Environment env = old.getEnvironment();
-
-		old.setAutoSave(false);
-		File destWorldDir = null;
-		if (old != null) {
-			destWorldDir = old.getWorldFolder();
-			for (Player player : old.getPlayers()) {
-				player.kickPlayer("Swapping worlds! Please relog!");
-			}
-			System.out.println("dest file is: " + destWorldDir);
-			if (!deleteWorld(old))
-				throw new Error("Failed to delete world: " + destWorldDir);
-		}
-
-		File worldsContainer = getServer().getWorldContainer();
-		if (destWorldDir == null) {
-			System.out.println("having to guess the path of the dest world: " + destWorldDir);
-			destWorldDir = new File(worldsContainer, destName);
-		}
-		File srcWorldDir = new File(worldsContainer, srcName);
-		System.out.println("src file is: " + srcWorldDir);
-
-		try {
-			Files.move(srcWorldDir.toPath(), destWorldDir.toPath());
-		} catch (IOException e) {
-			e.printStackTrace();
-			throw new Error(e);
-		}
-		for (World world : getServer().getWorlds()) {
-			if (world.getName().equals(destName)) {
-				throw new Error("Old world: " + destName + " still exists");
-			}
-		}
-		WorldCreator c = new WorldCreator(destName);
-		c.environment(env);
-		c.seed(seed);
-		World dest = getServer().createWorld(c);
-		if (dest == null) {
-			throw new Error("Failed to load renamed world " + srcName + " -> " + destName);
-		}
-		return dest;
+	
+	@EventHandler(priority = EventPriority.HIGH)
+	void onPlayerJoin(PlayerJoinEvent event) {
+		System.out.println("Player join");
 	}
+
+	@EventHandler(priority = EventPriority.HIGH)
+	void onPortal(PlayerPortalEvent event) {
+		System.out.println("portal event " + event.getPlayer().getDisplayName());
+		Location location = event.getTo();
+		if (location.getWorld().getEnvironment() == World.Environment.NETHER) {
+			//Use the same coords - just change the world
+			location.setWorld(getServer().getWorld(currentWorld + NETHER_SUFFIX));
+		
+		} else if (location.getWorld().getEnvironment() == World.Environment.NORMAL) {
+			location.setWorld(getServer().getWorld(currentWorld));
+
+		} else if (location.getWorld().getEnvironment() == World.Environment.THE_END) {
+			//use the end spawn pos
+			location = getServer().getWorld(currentWorld + THE_END_SUFFIX).getSpawnLocation();
+		
+		} else {
+			throw new RuntimeException("Unknown evniroment: " + location.getWorld().getEnvironment().toString());
+		}
+
+		event.setTo(location);
+	}
+
+	@EventHandler(priority = EventPriority.HIGH)
+	void onRespawn(PlayerRespawnEvent event) {
+		if (!event.isBedSpawn()) {
+			event.setRespawnLocation(getOverworldForPlayer(event.getPlayer()).getSpawnLocation());
+			System.out.println("changing respawn pos for player: " + event.getPlayer().getDisplayName());
+		}
+	}
+
+	@EventHandler(priority = EventPriority.HIGH)
+	void onQuitEvent(PlayerQuitEvent event) {
+		UniverseData oldData = getData(event.getPlayer());
+		updateUniverseData(event.getPlayer(), oldData);		
+	}
+
+	@EventHandler(priority = EventPriority.HIGH)
+	void onQuitEvent(PlayerKickEvent event) {
+		UniverseData oldData = getData(event.getPlayer());
+		updateUniverseData(event.getPlayer(), oldData);
+	}
+
 
 	private static final String NETHER_SUFFIX = "_nether";
 	private static final String THE_END_SUFFIX = "_the_end";
@@ -91,14 +181,58 @@ public class SpeedrunAssistant extends JavaPlugin {
 				sender.sendMessage("Cannot use a new world before one was created. Try /regen prep 1");
 			return;
 		}
+		String oldWorld = currentWorld;
+		boolean deleteOld = !currentWorld.equals("world");
 		String worldName = preppedWorlds.pop();
-		sender.sendMessage("Applying world: " + worldName + ". Please wait. This will take several seconds");
-
-		String destName = "world";
-		renameWorld(worldName, destName);
-		renameWorld(worldName + NETHER_SUFFIX, destName + NETHER_SUFFIX);
-		renameWorld(worldName + THE_END_SUFFIX, destName + THE_END_SUFFIX);
+		sender.sendMessage("Applying world: " + worldName + ". Teleporting players...");
+		
+		World newOverworld = getServer().getWorld(worldName);
+		if (newOverworld == null) {
+			throw new Error("Cannot gen newOverworld: " + worldName);
+		}
+		for (Player player : getServer().getOnlinePlayers()) {
+			setPlayerUniverse(worldName, player);
+		}
+		currentWorld = worldName;
+		
+		if (deleteOld) {
+			deleteWorld(getServer().getWorld(oldWorld));
+			deleteWorld(getServer().getWorld(oldWorld + NETHER_SUFFIX));
+			deleteWorld(getServer().getWorld(oldWorld + THE_END_SUFFIX));
+		}
 	}
+
+	private void setPlayerUniverse(String worldName, Player player) {
+		//Update the data before we reset and tp them
+		UniverseData oldData = getData(player);
+		updateUniverseData(player, oldData);
+		
+		World newOverworld = getServer().getWorld(worldName);
+		
+		boolean hasData = hasData(worldName, player);
+		if (hasData) {
+			UniverseData data = getData(worldName, player);
+			player.getInventory().setContents(data.inventory);
+			player.teleport(data.lastPos);
+			player.setHealth(data.health);
+			player.setSaturation(data.saturation);
+			player.setFoodLevel(data.hunger);
+
+		} else {
+			UniverseData data = getData(worldName, player);
+			Location spawn = newOverworld.getSpawnLocation();
+			player.teleport(spawn);
+			player.setBedSpawnLocation(null);
+			player.getInventory().clear();
+			player.setHealth(player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getDefaultValue());
+			player.setSaturation(5);
+			player.setFoodLevel(20);
+			System.out.println("Setting player: " + player.getDisplayName() + " to default values for the new world");
+			updateUniverseData(player, data);
+		}
+		
+	}
+
 
 	private boolean deleteDirectory(File directoryToBeDeleted) {
 		File[] allContents = directoryToBeDeleted.listFiles();
@@ -115,6 +249,7 @@ public class SpeedrunAssistant extends JavaPlugin {
 		getServer().unloadWorld(world, false);
 
 		if (deleteDirectory(worldFile)) {
+			System.out.println("Successfully deleted world: " + worldFile);
 			return true;
 		} else {
 			System.out.println("World '" + world.getName() + "' was NOT deleted.");
@@ -140,17 +275,17 @@ public class SpeedrunAssistant extends JavaPlugin {
 
 		World overworld = nextWorld(worldName, World.Environment.NORMAL, random);
 		sender.sendMessage("Overworld generation finished");
-		getServer().unloadWorld(overworld, true);
+		overworld.save();
 		sender.sendMessage("Saving overworld chunks finished");
 
 		World nether = nextWorld(worldName + NETHER_SUFFIX, World.Environment.NETHER, random);
 		sender.sendMessage("Nether generation finished");
-		getServer().unloadWorld(nether, true);
+		nether.save();
 		sender.sendMessage("Saving nether chunks finished");
 
 		World the_end = nextWorld(worldName + THE_END_SUFFIX, World.Environment.THE_END, random);
 		sender.sendMessage("The end generation finished");
-		getServer().unloadWorld(the_end, true);
+		the_end.save();
 		sender.sendMessage("Saving the end chunks finished");
 
 		sender.sendMessage("Current worlds are:");
