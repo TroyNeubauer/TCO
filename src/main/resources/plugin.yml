@@ -2,9 +2,12 @@ name: SpeedrunAssistant
 main: com.troy.speed.SpeedrunAssistant
 version: 1.16.5-0.1.0
 author: Troy Neubauer
+api-version: 1.16
 commands:
-   basic:
+   regen:
       description: Regenerates the world, nether and end using a new random seed
-      usage: /regen
-      permission: operator
+      usage:
+         /regen list - lists the current worlds (usually for debuging)
+         /regen apply - moves all players to the new world
+         /regen prep [amount] - prepares X number of new worlds that can be used in regen apply
       permission-message: You don't have <permission>
