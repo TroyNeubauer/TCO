@@ -1,6 +1,8 @@
 package com.troy.speed;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
@@ -29,18 +31,23 @@ import org.bukkit.plugin.java.JavaPlugin;
 public class SpeedrunAssistant extends JavaPlugin implements Listener {
 
 	private Deque<String> preppedWorlds = new ArrayDeque<String>();
-	
-	//A universe is a overworld-nether-end triple that are linked through their portals and inaccessible from others
+
+	private static final String CURRENT_UNIVERSE_FILE_NAME = "current_universe_name.txt";
+	private static final String PREP_FILE_NAME = "prep";
+
+	// A universe is a overworld-nether-end triple that are linked through their
+	// portals and inaccessible from others
 	static class UniverseData {
 		ItemStack[] inventory;
 		Location lastPos;
 		float health, saturation;
 		int hunger;
 	}
-	
-	private String currentWorld;
-	
-	//Maps universe names to a map of players and their data
+
+	private String currentWorld = null;
+	private long ticks = 0, nextPrint = 20 * 30;
+
+	// Maps universe names to a map of players and their data
 	private final HashMap<String, HashMap<UUID, UniverseData>> data = new HashMap<String, HashMap<UUID, UniverseData>>();
 
 	@Override
@@ -48,19 +55,50 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		super.onEnable();
 
 		getCommand("regen").setExecutor(regenCommand);
-		
-		for (World world : getServer().getWorlds()) {
-			if (world.getEnvironment() == World.Environment.NORMAL) {
-				currentWorld = world.getName();
+
+		try {
+			currentWorld = Files.readAllLines(new File(CURRENT_UNIVERSE_FILE_NAME).toPath()).get(0);
+		} catch (Exception ignore) {
+		}
+		World testWorld = nextWorld(currentWorld, World.Environment.NORMAL, new Random());
+		if (currentWorld == null || testWorld == null) {
+			for (World world : getServer().getWorlds()) {
+				if (world.getEnvironment() == World.Environment.NORMAL) {
+					currentWorld = world.getName();
+				}
 			}
 		}
 		System.out.println("Picked world: " + currentWorld);
+
+		for (File dir : getServer().getWorldContainer().listFiles()) {
+			if (new File(dir, PREP_FILE_NAME).exists()) {
+				System.out.println("Found prep: " + dir);
+				preppedWorlds.addLast(dir.getName());
+			}
+		}
+
 		getServer().getPluginManager().registerEvents(this, this);
 		for (Player player : getServer().getOnlinePlayers()) {
 			setPlayerUniverse(currentWorld, player);
 		}
+
+		getServer().getScheduler().scheduleSyncRepeatingTask(this, new Runnable() {
+
+			@Override
+			public void run() {
+				ticks++;
+
+				if (ticks >= nextPrint) {
+					long hours = ticks / 20 / 60 / 60;
+					long minutes = ticks / 20 / 60 - hours * 60;
+					long seconds = ticks / 20 - hours * 60 * 60 - minutes * 60;
+					getServer().broadcastMessage("Speedrun time at T+" + hours + "h:" + minutes + "m:" + seconds + "s");
+					nextPrint += 20 * 30;
+				}
+			}
+		}, 1, 1);
 	}
-	
+
 	private World getOverworldForPlayer(Player player) {
 		World current = player.getWorld();
 		if (current.getEnvironment() == World.Environment.NORMAL) {
@@ -71,15 +109,15 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 			name = name.replaceAll(THE_END_SUFFIX, "");
 			World result = getServer().getWorld(name);
 			if (result == null) {
-				throw new RuntimeException("Unable to get matching overworld name: " + name + ". From player " + player.getDisplayName() + " current non-overworld name: " + current.getName());
+				throw new RuntimeException("Unable to get matching overworld name: " + name + ". From player "
+						+ player.getDisplayName() + " current non-overworld name: " + current.getName());
 			}
 			return result;
 		}
 	}
-	
+
 	private void updateUniverseData(Player player, UniverseData data) {
 		data.inventory = player.getInventory().getContents();
-		Location bedPos = player.getBedSpawnLocation();
 		data.lastPos = player.getLocation();
 		data.health = (float) player.getHealth();
 		data.saturation = player.getSaturation();
@@ -97,8 +135,9 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		}
 		return true;
 	}
-	
-	//Gets or creates the universe data for a player. If the player has no data in this universe then fields in the returned object will be uninitialized
+
+	// Gets or creates the universe data for a player. If the player has no data in
+	// this universe then fields in the returned object will be uninitialized
 	private UniverseData getData(String universeName, Player player) {
 		HashMap<UUID, UniverseData> players = data.get(universeName);
 		if (players == null) {
@@ -112,18 +151,17 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		}
 		return data;
 	}
-	
-	//Gets the data associated a player for the universe they are in
+
+	// Gets the data associated a player for the universe they are in
 	private UniverseData getData(Player player) {
 		return getData(getOverworldForPlayer(player).getName(), player);
 	}
-	
 
 	@Override
 	public void onDisable() {
 		super.onDisable();
 	}
-	
+
 	@EventHandler(priority = EventPriority.HIGH)
 	void onPlayerJoin(PlayerJoinEvent event) {
 		System.out.println("Player join");
@@ -134,16 +172,16 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		System.out.println("portal event " + event.getPlayer().getDisplayName());
 		Location location = event.getTo();
 		if (location.getWorld().getEnvironment() == World.Environment.NETHER) {
-			//Use the same coords - just change the world
+			// Use the same coords - just change the world
 			location.setWorld(getServer().getWorld(currentWorld + NETHER_SUFFIX));
-		
+
 		} else if (location.getWorld().getEnvironment() == World.Environment.NORMAL) {
 			location.setWorld(getServer().getWorld(currentWorld));
 
 		} else if (location.getWorld().getEnvironment() == World.Environment.THE_END) {
-			//use the end spawn pos
+			// use the end spawn pos
 			location = getServer().getWorld(currentWorld + THE_END_SUFFIX).getSpawnLocation();
-		
+
 		} else {
 			throw new RuntimeException("Unknown evniroment: " + location.getWorld().getEnvironment().toString());
 		}
@@ -162,7 +200,7 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 	@EventHandler(priority = EventPriority.HIGH)
 	void onQuitEvent(PlayerQuitEvent event) {
 		UniverseData oldData = getData(event.getPlayer());
-		updateUniverseData(event.getPlayer(), oldData);		
+		updateUniverseData(event.getPlayer(), oldData);
 	}
 
 	@EventHandler(priority = EventPriority.HIGH)
@@ -170,7 +208,6 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		UniverseData oldData = getData(event.getPlayer());
 		updateUniverseData(event.getPlayer(), oldData);
 	}
-
 
 	private static final String NETHER_SUFFIX = "_nether";
 	private static final String THE_END_SUFFIX = "_the_end";
@@ -185,30 +222,46 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		boolean deleteOld = !currentWorld.equals("world");
 		String worldName = preppedWorlds.pop();
 		sender.sendMessage("Applying world: " + worldName + ". Teleporting players...");
+
+		// Load worlds from disk
+		Random random = new Random();
+		World newOverworld = nextWorld(worldName, World.Environment.NORMAL, random);
+		World nether = nextWorld(worldName + NETHER_SUFFIX, World.Environment.NETHER, random);
+		World end = nextWorld(worldName, World.Environment.THE_END, random);
 		
-		World newOverworld = getServer().getWorld(worldName);
+
 		if (newOverworld == null) {
-			throw new Error("Cannot gen newOverworld: " + worldName);
+			throw new Error("Cannot get newOverworld: " + worldName);
 		}
+		File prepFile = new File(newOverworld.getWorldFolder(), PREP_FILE_NAME);
+		if (prepFile.exists())
+			prepFile.delete();
+		
 		for (Player player : getServer().getOnlinePlayers()) {
 			setPlayerUniverse(worldName, player);
 		}
 		currentWorld = worldName;
-		
+		try {
+			Files.writeString(new File(CURRENT_UNIVERSE_FILE_NAME).toPath(), currentWorld);
+		} catch (IOException ignore) {
+		}
+
 		if (deleteOld) {
 			deleteWorld(getServer().getWorld(oldWorld));
 			deleteWorld(getServer().getWorld(oldWorld + NETHER_SUFFIX));
 			deleteWorld(getServer().getWorld(oldWorld + THE_END_SUFFIX));
 		}
+		ticks = 0;
+		nextPrint = 20 * 30;
 	}
 
 	private void setPlayerUniverse(String worldName, Player player) {
-		//Update the data before we reset and tp them
+		// Update the data before we reset and tp them
 		UniverseData oldData = getData(player);
 		updateUniverseData(player, oldData);
-		
+
 		World newOverworld = getServer().getWorld(worldName);
-		
+
 		boolean hasData = hasData(worldName, player);
 		if (hasData) {
 			UniverseData data = getData(worldName, player);
@@ -230,9 +283,8 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 			System.out.println("Setting player: " + player.getDisplayName() + " to default values for the new world");
 			updateUniverseData(player, data);
 		}
-		
-	}
 
+	}
 
 	private boolean deleteDirectory(File directoryToBeDeleted) {
 		File[] allContents = directoryToBeDeleted.listFiles();
@@ -245,6 +297,7 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 	}
 
 	private boolean deleteWorld(World world) {
+		if (world == null) return false;
 		File worldFile = world.getWorldFolder();
 		getServer().unloadWorld(world, false);
 
@@ -266,7 +319,7 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		return getServer().createWorld(c);
 	}
 
-	private void prepWorld(CommandSender sender) {
+	private void prepWorld(CommandSender sender, boolean autoUnload) {
 		Random random = new Random();
 		long id = Math.abs(random.nextLong());
 		String worldName = "world" + id;
@@ -275,25 +328,38 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 
 		World overworld = nextWorld(worldName, World.Environment.NORMAL, random);
 		sender.sendMessage("Overworld generation finished");
-		overworld.save();
+		try {
+			Files.writeString(new File(overworld.getWorldFolder(), PREP_FILE_NAME).toPath(), "");
+		} catch (IOException ignore) {
+		}
+
+		if (autoUnload)
+			getServer().unloadWorld(overworld, true);
+		else
+			overworld.save();
+
 		sender.sendMessage("Saving overworld chunks finished");
 
 		World nether = nextWorld(worldName + NETHER_SUFFIX, World.Environment.NETHER, random);
 		sender.sendMessage("Nether generation finished");
-		nether.save();
+
+		if (autoUnload)
+			getServer().unloadWorld(nether, true);
+		else
+			nether.save();
+
 		sender.sendMessage("Saving nether chunks finished");
 
 		World the_end = nextWorld(worldName + THE_END_SUFFIX, World.Environment.THE_END, random);
 		sender.sendMessage("The end generation finished");
-		the_end.save();
+
+		if (autoUnload)
+			getServer().unloadWorld(the_end, true);
+		else
+			the_end.save();
+
 		sender.sendMessage("Saving the end chunks finished");
 
-		sender.sendMessage("Current worlds are:");
-		for (World world : getServer().getWorlds()) {
-			sender.sendMessage("  " + world.getName());
-		}
-
-		
 		if (overworld == null || nether == null || the_end == null) {
 			throw new Error("World gen failed!");
 		}
@@ -317,23 +383,16 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 						for (World world : sender.getServer().getWorlds()) {
 							sender.sendMessage("  " + world.getName());
 						}
+						sender.sendMessage("Prepped unloaded worlds include: ");
+						for (File dir : getServer().getWorldContainer().listFiles()) {
+							if (new File(dir, PREP_FILE_NAME).exists()) {
+								sender.sendMessage(dir.getName());
+							}
+						}
 						return true;
 					}
 					if (args.length >= 1 && args[0].equals("prep")) {
-						if (args.length == 1) {
-							sender.sendMessage("You must specify the number of worlds to prep");
-							return false;
-						}
-						try {
-							int prepCount = Integer.parseInt(args[1]);
-							sender.sendMessage("Starting prepare of " + prepCount + " worlds");
-							for (int i = 0; i < prepCount; i++) {
-								prepWorld(sender);
-							}
-							return true;
-						} catch (Exception e) {
-							return false;
-						}
+						prepWorld(sender, false);
 					}
 
 					if (args.length == 1 && args[0].equals("apply")) {

@@ -9,5 +9,5 @@ commands:
       usage:
          /regen list - lists the current worlds (usually for debuging)
          /regen apply - moves all players to the new world
-         /regen prep [amount] - prepares X number of new worlds that can be used in regen apply
+         /regen prep - prepares a new world that is activated when /regen apply is run
       permission-message: You don't have <permission>
