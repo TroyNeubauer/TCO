@@ -53,34 +53,8 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 	@Override
 	public void onEnable() {
 		super.onEnable();
-
+		
 		getCommand("regen").setExecutor(regenCommand);
-
-		try {
-			currentWorld = Files.readAllLines(new File(CURRENT_UNIVERSE_FILE_NAME).toPath()).get(0);
-		} catch (Exception ignore) {
-		}
-		World testWorld = nextWorld(currentWorld, World.Environment.NORMAL, new Random());
-		if (currentWorld == null || testWorld == null) {
-			for (World world : getServer().getWorlds()) {
-				if (world.getEnvironment() == World.Environment.NORMAL) {
-					currentWorld = world.getName();
-				}
-			}
-		}
-		System.out.println("Picked world: " + currentWorld);
-
-		for (File dir : getServer().getWorldContainer().listFiles()) {
-			if (new File(dir, PREP_FILE_NAME).exists()) {
-				System.out.println("Found prep: " + dir);
-				preppedWorlds.addLast(dir.getName());
-			}
-		}
-
-		getServer().getPluginManager().registerEvents(this, this);
-		for (Player player : getServer().getOnlinePlayers()) {
-			setPlayerUniverse(currentWorld, player);
-		}
 
 		getServer().getScheduler().scheduleSyncRepeatingTask(this, new Runnable() {
 
@@ -97,6 +71,43 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 				}
 			}
 		}, 1, 1);
+
+		//Try to load the name of the last universe if it exists
+		try {
+			currentWorld = Files.readAllLines(new File(CURRENT_UNIVERSE_FILE_NAME).toPath()).get(0);
+		} catch (Exception _ignore) {
+		}
+		boolean hasCurrentWorld = false;
+		//If we have an old universe then try to load it from disk
+		if (currentWorld != null) {
+			World testWorld = nextWorld(currentWorld, World.Environment.NORMAL, new Random());
+			if (testWorld != null) {
+				nextWorld(currentWorld + NETHER_SUFFIX, World.Environment.NETHER, new Random());
+				nextWorld(currentWorld + THE_END_SUFFIX, World.Environment.THE_END, new Random());
+				hasCurrentWorld = true;
+			}
+		}
+		//If we couldn't find a past universe than just pick the first overworld world to be it. Usually just "world"
+		if (!hasCurrentWorld) {
+			for (World world : getServer().getWorlds()) {
+				if (world.getEnvironment() == World.Environment.NORMAL) {
+					currentWorld = world.getName();
+				}
+			}
+		}
+		System.out.println("Picked world: " + currentWorld);
+		//Discover past worlds that we prepped and can use
+		for (File dir : getServer().getWorldContainer().listFiles()) {
+			if (new File(dir, PREP_FILE_NAME).exists()) {
+				System.out.println("Found prep: " + dir);
+				preppedWorlds.addLast(dir.getName());
+			}
+		}
+
+		getServer().getPluginManager().registerEvents(this, this);
+		for (Player player : getServer().getOnlinePlayers()) {
+			setPlayerUniverse(currentWorld, player);
+		}
 	}
 
 	private World getOverworldForPlayer(Player player) {
@@ -192,6 +203,7 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 	@EventHandler(priority = EventPriority.HIGH)
 	void onRespawn(PlayerRespawnEvent event) {
 		if (!event.isBedSpawn()) {
+			//If this is a non bed spawn (bed destroyed or uset) then we need to bring them to the current universe
 			event.setRespawnLocation(getOverworldForPlayer(event.getPlayer()).getSpawnLocation());
 			System.out.println("changing respawn pos for player: " + event.getPlayer().getDisplayName());
 		}
@@ -201,6 +213,7 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 	void onQuitEvent(PlayerQuitEvent event) {
 		UniverseData oldData = getData(event.getPlayer());
 		updateUniverseData(event.getPlayer(), oldData);
+		//Update data on quit so we have it for next time
 	}
 
 	@EventHandler(priority = EventPriority.HIGH)
@@ -215,11 +228,10 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 	private void applyNewWorld(CommandSender sender) {
 		if (preppedWorlds.isEmpty()) {
 			if (sender != null)
-				sender.sendMessage("Cannot use a new world before one was created. Try /regen prep 1");
+				sender.sendMessage("Cannot use a new world before one was created. Try /regen prep");
 			return;
 		}
 		String oldWorld = currentWorld;
-		boolean deleteOld = !currentWorld.equals("world");
 		String worldName = preppedWorlds.pop();
 		sender.sendMessage("Applying world: " + worldName + ". Teleporting players...");
 
@@ -228,24 +240,26 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 		World newOverworld = nextWorld(worldName, World.Environment.NORMAL, random);
 		World nether = nextWorld(worldName + NETHER_SUFFIX, World.Environment.NETHER, random);
 		World end = nextWorld(worldName, World.Environment.THE_END, random);
-		
 
 		if (newOverworld == null) {
 			throw new Error("Cannot get newOverworld: " + worldName);
 		}
 		File prepFile = new File(newOverworld.getWorldFolder(), PREP_FILE_NAME);
+		//This world is no longer prepped since its in use so delete the prepped flag
 		if (prepFile.exists())
 			prepFile.delete();
-		
+
+		//teleport players
 		for (Player player : getServer().getOnlinePlayers()) {
 			setPlayerUniverse(worldName, player);
 		}
 		currentWorld = worldName;
 		try {
 			Files.writeString(new File(CURRENT_UNIVERSE_FILE_NAME).toPath(), currentWorld);
-		} catch (IOException ignore) {
+		} catch (IOException _ignore) {
 		}
 
+		boolean deleteOld = !currentWorld.equals("world");
 		if (deleteOld) {
 			deleteWorld(getServer().getWorld(oldWorld));
 			deleteWorld(getServer().getWorld(oldWorld + NETHER_SUFFIX));
@@ -297,7 +311,8 @@ public class SpeedrunAssistant extends JavaPlugin implements Listener {
 	}
 
 	private boolean deleteWorld(World world) {
-		if (world == null) return false;
+		if (world == null)
+			return false;
 		File worldFile = world.getWorldFolder();
 		getServer().unloadWorld(world, false);
 
