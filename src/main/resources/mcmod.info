@@ -1,13 +1,13 @@
 [
 {
-  "modid": "examplemod",
-  "name": "Example Mod",
-  "description": "Example placeholder mod.",
+  "modid": "tco",
+  "name": "TCO",
+  "description": "Adds commands for running TCO",
   "version": "${version}",
   "mcversion": "${mcversion}",
-  "url": "",
+  "url": "https://github.com/TroyNeubauer/TCO",
   "updateUrl": "",
-  "authorList": ["ExampleDude"],
+  "authorList": ["Troy Neubauer"],
   "credits": "The Forge and FML guys, for making this example",
   "logoFile": "",
   "screenshots": [],
