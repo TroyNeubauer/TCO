@@ -2,33 +2,41 @@ package com.troy.tco.world;
 
 import com.troy.tco.TCO;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
 import net.minecraft.world.World;
 import net.minecraft.world.storage.MapStorage;
 import net.minecraft.world.storage.WorldSavedData;
+import net.minecraftforge.common.util.Constants;
 import org.lwjgl.util.vector.Vector3f;
+import scala.Int;
 
 import java.util.ArrayList;
+import java.util.Objects;
 
 public class TCOWorldData extends WorldSavedData {
 
 	private Vector3f lobbySpawn, policeSpawn, tcoSpawn;
+	private Vector3f minPolice, maxPolice;
 	private ArrayList<Vector3f> spawns;
-	private boolean isTemplate;
+	//The dimension ID of the parent map or null if template map
+	private Integer parentID;
 
 	private static final String DATA_NAME = TCO.MODID + "_GameData";
 
 	public TCOWorldData() {
 		super(DATA_NAME);
-		this.isTemplate = true;
+		this.parentID = null;
 		this.spawns = new ArrayList<>();
 	}
 
-	public TCOWorldData(TCOWorldData data) {
+	public TCOWorldData(TCOWorldData data, int parentID) {
 		super(DATA_NAME);
 		this.lobbySpawn = data.lobbySpawn;
 		this.policeSpawn = data.policeSpawn;
 		this.tcoSpawn = data.tcoSpawn;
-		this.isTemplate = false;
+		this.minPolice = data.minPolice;
+		this.maxPolice = data.maxPolice;
+		this.parentID = parentID;
 		this.spawns = new ArrayList<>(data.spawns);
 	}
 
@@ -37,11 +45,17 @@ public class TCOWorldData extends WorldSavedData {
 		this.lobbySpawn = readVec(nbt, "lobbySpawn");
 		this.policeSpawn = readVec(nbt, "policeSpawn");
 		this.tcoSpawn = readVec(nbt, "tcoSpawn");
-		this.isTemplate = nbt.getBoolean("isTemplate");
+		this.minPolice = readVec(nbt, "minPolice");
+		this.maxPolice = readVec(nbt, "maxPolice");
+		if (nbt.getBoolean("isTemplate")) {
+			this.parentID = null;
+		} else {
+			this.parentID = nbt.getInteger("parentID");
+		}
 
-		NBTTagCompound nbtSpawns = nbt.getCompoundTag("spawns");
-		for (int i = 0; i < nbtSpawns.getSize(); i++) {
-			NBTTagCompound pos = nbtSpawns.getCompoundTag(Integer.toHexString(i));
+		NBTTagList nbtSpawns = nbt.getTagList("spawns", Constants.NBT.TAG_COMPOUND);
+		for (int i = 0; i < nbtSpawns.tagCount(); i++) {
+			NBTTagCompound pos = (NBTTagCompound) nbtSpawns.get(i);
 			Vector3f vec = readVec(pos, "");
 			this.spawns.add(vec);
 		}
@@ -63,53 +77,90 @@ public class TCOWorldData extends WorldSavedData {
 		writeVec(result, this.lobbySpawn, "lobbySpawn");
 		writeVec(result, this.policeSpawn, "policeSpawn");
 		writeVec(result, this.tcoSpawn, "tcoSpawn");
-		result.setBoolean("isTemplate", this.isTemplate);
+		writeVec(result, this.minPolice, "minPolice");
+		writeVec(result, this.maxPolice, "maxPolice");
+		result.setBoolean("isTemplate", this.isTemplate());
+		if (!this.isTemplate()) {
+			result.setInteger("parentID", parentID);
+		}
 
-		NBTTagCompound nbtSpawns = new NBTTagCompound();
+		NBTTagList nbtSpawns = new NBTTagList();
 		int i = 0;
 		for (Vector3f spawn : this.spawns) {
 			NBTTagCompound pos = new NBTTagCompound();
 			writeVec(pos, spawn, "");
-			nbtSpawns.setTag(Integer.toHexString(i++), pos);
+			nbtSpawns.appendTag(pos);
 		}
 		result.setTag("spawns", nbtSpawns);
 		return result;
 	}
 
+	public static TCOWorldData create(World world) {
+		TCOWorldData data = new TCOWorldData();
+		world.getPerWorldStorage().setData(DATA_NAME, data);
+		return data;
+	}
+
+	public static void set(World world, TCOWorldData data) {
+		world.getPerWorldStorage().setData(DATA_NAME, data);
+	}
+
 	public static TCOWorldData get(World world) {
-		// The IS_GLOBAL constant is there for clarity, and should be simplified into the right branch.
+		if (world == null) {
+			return null;
+		}
 		return (TCOWorldData) world.getPerWorldStorage().getOrLoadData(TCOWorldData.class, DATA_NAME);
 	}
 
 	public static TCOWorldData getOrCreate(World world) {
-		// The IS_GLOBAL constant is there for clarity, and should be simplified into the right branch.
+		Objects.requireNonNull(world);
 		TCOWorldData instance = get(world);
 
 		if (instance == null) {
-			instance = new TCOWorldData();
-			world.getPerWorldStorage().setData(DATA_NAME, instance);
+			return create(world);
+		} else {
+			return instance;
 		}
-		return instance;
 	}
 
 	public Vector3f getLobbySpawn() {
 		return lobbySpawn;
 	}
 
+	public void setLobbySpawn(Vector3f lobbySpawn) {
+		this.lobbySpawn = lobbySpawn;
+	}
+
 	public Vector3f getPoliceSpawn() {
 		return policeSpawn;
+	}
+
+	public void setPoliceSpawn(Vector3f policeSpawn) {
+		this.policeSpawn = policeSpawn;
 	}
 
 	public Vector3f getTcoSpawn() {
 		return tcoSpawn;
 	}
 
+	public void setTcoSpawn(Vector3f tcoSpawn) {
+		this.tcoSpawn = tcoSpawn;
+	}
+
 	public ArrayList<Vector3f> getSpawns() {
 		return spawns;
 	}
+	
+	public void addSpawn(Vector3f pos) {
+		this.spawns.add(pos);
+	}
 
 	public boolean isTemplate() {
-		return isTemplate;
+		return this.parentID == null;
+	}
+
+	public int getParentID() {
+		return parentID;
 	}
 
 	public boolean isReady() {
@@ -124,7 +175,7 @@ public class TCOWorldData extends WorldSavedData {
 					", policeSpawn=" + policeSpawn +
 					", tcoSpawn=" + tcoSpawn +
 					", spawns=" + spawns +
-					", isTemplate=" + isTemplate +
+					", parentID=" + String.valueOf(parentID) +
 					'}';
 		}
 		return "TCOWorldData{" +
@@ -132,7 +183,7 @@ public class TCOWorldData extends WorldSavedData {
 				", policeSpawn=" + policeSpawn +
 				", tcoSpawn=" + tcoSpawn +
 				", spawns=(count:" + spawns.size() + ")" +
-				", isTemplate=" + isTemplate +
+				", parentID=" + String.valueOf(parentID) +
 				'}';
 	}
 }

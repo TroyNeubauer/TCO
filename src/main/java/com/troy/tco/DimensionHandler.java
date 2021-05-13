@@ -21,7 +21,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.text.ITextComponent;
 import net.minecraft.util.text.Style;
 import net.minecraft.util.text.TextComponentString;
-import net.minecraft.util.text.TextComponentTranslation;
 import net.minecraft.util.text.TextFormatting;
 import net.minecraft.world.storage.ISaveHandler;
 import net.minecraft.world.storage.WorldInfo;
@@ -31,7 +30,6 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.world.WorldEvent;
 import net.minecraftforge.fml.common.FMLCommonHandler;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
-import scala.Int;
 
 public class DimensionHandler extends WorldSavedData
 {
@@ -40,16 +38,14 @@ public class DimensionHandler extends WorldSavedData
 	HashMap<Integer, TCOWorldInfo> dimensionInfo;
 	HashMap<Integer, UUID> toBeDeleted;
 
-	public DimensionHandler(String name)
-	{
+	public DimensionHandler(String name) {
 		super(name);
 
 		dimensionInfo = new HashMap<Integer, TCOWorldInfo>();
 		toBeDeleted = new HashMap<Integer, UUID>();
 	}
 
-	public DimensionHandler()
-	{
+	public DimensionHandler() {
 		super(NAME);
 
 		dimensionInfo = new HashMap<Integer, TCOWorldInfo>();
@@ -57,35 +53,97 @@ public class DimensionHandler extends WorldSavedData
 	}
 
 	@Override
-	public boolean isDirty()
-	{
+	public boolean isDirty() {
 		return true;
 	}
 
 	public void createTemplate(EntityPlayerMP playerEntity, String name) {
+		File src = getMapFile(name);
+		if (!src.exists()) {
+			TCO.logger.warn("Failed to find map: " + src.getAbsolutePath());
+			playerEntity.sendMessage(new TextComponentString("Could not find map " + name).setStyle(new Style().setColor(TextFormatting.RED)));
+			return;
+		}
+		int dimensionID = DimensionManager.getNextFreeDimId();
+		File dest = new File(DimensionManager.getCurrentSaveRootDirectory(), "DIM" + dimensionID);
+		//copy region data
+		copyRegionData(src, dest);
+
 		TCOWorldInfo info = new TCOWorldInfo(new WorldSettings(0, GameType.SURVIVAL, true, false, WorldType.DEFAULT), name);
-		int dimensionID = createDimension(playerEntity, info);
+		createDimension(playerEntity, info, dimensionID);
 
 		World world = playerEntity.getEntityWorld().getMinecraftServer().getWorld(dimensionID);
-		TCO.logger.info("Got world " + String.valueOf(world));
-		TCOWorldData.getOrCreate(world);
+		TCOWorldData data = TCOWorldData.create(world);
+		TCO.logger.info("Created initial data:" + data);
 	}
 
-	public boolean createFromTemplate(EntityPlayerMP playerEntity, int parentDimID) {
+	private File getMapFile(String name) {
+		return new File(new File(DimensionManager.getCurrentSaveRootDirectory().getParentFile(), "maps"), name);
+	}
+
+	private void copyFiles(File src, File dest) {
+		if (!dest.exists()) {
+			dest.mkdirs();
+		}
+		TCO.logger.trace("Copying " + src + "/* to " + dest + "/*");
+		int count = 0;
+		for (File file : src.listFiles()) {
+			if (file.isFile()) {
+				try {
+					FileUtils.copyFile(file, new File(dest, file.getName()));
+					count++;
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+		TCO.logger.info("Copied " + count + " files successfully");
+	}
+
+	/**
+	 * Tries to create a copy of the given dimension. 
+	 * @param playerEntity The player who initiated the creation. Used only for sending status update messages through chas
+	 * @param parentDimID The dimension to clone
+	 * @return The ID of the new dimension or null if the duplication failed
+	 */
+	public Integer createFromTemplate(EntityPlayerMP playerEntity, int parentDimID) {
 		World parentWorld = playerEntity.getEntityWorld().getMinecraftServer().getWorld(parentDimID);
 		TCOWorldData data = TCOWorldData.get(parentWorld);
 		if (data == null) {
 			TCO.logger.warn("World id " + parentDimID + " does not have TCO data");
-			return false;
+			return null;
 		}
-		TCOWorldInfo info = new TCOWorldInfo(new WorldSettings(0, GameType.SURVIVAL, true, false, WorldType.DEFAULT), data.mapName + "-impl");
-		int dimensionID = createDimension(playerEntity, info);
+		int newDimID = DimensionManager.getNextFreeDimId();
+		cloneWorld(parentDimID, newDimID);
+		int subID = 0;
+		for (Map.Entry<Integer, TCOWorldInfo> entry : dimensionInfo.entrySet()) {
+			TCOWorldData worldData = TCOWorldData.get(playerEntity.getServer().getWorld(entry.getKey()));
+			if (!worldData.isTemplate()) {
+				if (worldData.getParentID() == parentDimID) {
+					subID++;
+				}
+			}
+		}
+		String worldName = parentWorld.getWorldInfo().getWorldName() + "-" + subID;
+		TCOWorldInfo info = new TCOWorldInfo(new WorldSettings(0, GameType.SURVIVAL, true, false, WorldType.DEFAULT), worldName);
+		createDimension(playerEntity, info, newDimID);
 
-		World world = playerEntity.getEntityWorld().getMinecraftServer().getWorld(dimensionID);
-		TCO.logger.info("Got world " + String.valueOf(world));
-		TCOWorldData.get(world);
+		World world = playerEntity.getEntityWorld().getMinecraftServer().getWorld(newDimID);
+		TCO.logger.info("Got world " + world);
+		TCOWorldData.set(world, data);
 
-		return true;
+		return newDimID;
+	}
+
+	private void cloneWorld(int srcID, int destID) {
+		File src = new File(DimensionManager.getCurrentSaveRootDirectory(), "DIM" + srcID);
+		File dest = new File(DimensionManager.getCurrentSaveRootDirectory(), "DIM" + destID);
+		TCO.logger.info("Copying " + src + " to " + dest);
+		try {
+			FileUtils.copyDirectory(src, dest);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 
 	/**
@@ -101,9 +159,10 @@ public class DimensionHandler extends WorldSavedData
 		return null;
 	}
 
-	public int createDimension(EntityPlayerMP playerEntity, TCOWorldInfo worldInfo)
-	{
-		int dimensionID = DimensionManager.getNextFreeDimId();
+	public int createDimension(EntityPlayerMP playerEntity, TCOWorldInfo worldInfo, int dimensionID) {
+		if (dimensionID == -1) {
+			dimensionID = DimensionManager.getNextFreeDimId();
+		}
 
 		dimensionInfo.put(dimensionID, worldInfo);
 		DimensionManager.registerDimension(dimensionID, DimensionType.OVERWORLD);
@@ -121,7 +180,7 @@ public class DimensionHandler extends WorldSavedData
 
 		if (dimensionInfo.isEmpty())
 		{
-			return new TextComponentTranslation("simpleDimensions.nodimensions");
+			return new TextComponentString("No TCO worlds");
 		}
 		else
 		{
@@ -207,18 +266,13 @@ public class DimensionHandler extends WorldSavedData
 			DimensionManager.registerDimension(dimensionID, DimensionType.OVERWORLD);
 
 			loadDimension(dimensionID, worldInfo);
+			TCO.logger.info("Loaded world: " + dimensionID);
 		}
 	}
 
 	private void loadDimension(int dimensionID, WorldInfo worldInfo)
 	{
 		WorldServer overworld = (WorldServer) FMLCommonHandler.instance().getMinecraftServerInstance().getEntityWorld();
-		try {
-			DimensionManager.getProviderType(dimensionID);
-		} catch (Exception e) {
-			System.err.println("Cannot Hotload Dim: " + e.getMessage());
-			return;
-		}
 
 		MinecraftServer mcServer = overworld.getMinecraftServer();
 		ISaveHandler savehandler = overworld.getSaveHandler();
@@ -227,6 +281,7 @@ public class DimensionHandler extends WorldSavedData
 		WorldServer world = (WorldServer) (new TCOWorld(worldInfo, mcServer, savehandler, dimensionID, overworld, mcServer.profiler).init());
 		world.addEventListener(new ServerWorldEventHandler(mcServer, world));
 		MinecraftForge.EVENT_BUS.post(new WorldEvent.Load(world));
+		TCO.logger.info("Loaded world: " + dimensionID);
 
 		if (!mcServer.isSinglePlayer())
 		{
@@ -238,7 +293,7 @@ public class DimensionHandler extends WorldSavedData
 
 	public void deleteDimension(ICommandSender sender, int dimensionID)	{
 		if (!dimensionInfo.containsKey(dimensionID)) {
-			sender.sendMessage(new TextComponentString("The dimension associated with that id is not from the SimpleDimensions mod").setStyle(new Style().setColor(TextFormatting.RED)));
+			sender.sendMessage(new TextComponentString("The dimension associated with that id is not from TCO").setStyle(new Style().setColor(TextFormatting.RED)));
 			return;
 		}
 
@@ -253,23 +308,26 @@ public class DimensionHandler extends WorldSavedData
 		toBeDeleted.put(dimensionID, entitySender != null ? entitySender.getUniqueID() : null);
 
 		DimensionManager.unloadWorld(dimensionID);
-	}
 
-	public void unload(World world, int dimensionID) {
 		if (dimensionInfo.containsKey(dimensionID)) {
 			WorldInfo worldInfo = dimensionInfo.get(dimensionID);
 
 			DimensionManager.unregisterDimension(dimensionID);
 		}
+		dimensionInfo.remove(dimensionID);
+		syncWithClients();
+	}
+
+	public void unload(World world, int dimensionID) {
 
 		if (toBeDeleted.containsKey(dimensionID)) {
+			TCO.logger.info("Deleting dimension: " + dimensionID);
 			UUID uniqueID = toBeDeleted.get(dimensionID);
 
 			toBeDeleted.remove(dimensionID);
-			dimensionInfo.remove(dimensionID);
 
 			((WorldServer) world).flush();
-			File dimensionFolder = new File(DimensionManager.getCurrentSaveRootDirectory(), "DIM" + dimensionID);
+			File dimensionFolder = getDimensionFile(dimensionID);
 
 			EntityPlayerMP player = null;
 			if (uniqueID != null) {
@@ -278,6 +336,7 @@ public class DimensionHandler extends WorldSavedData
 
 			try {
 				FileUtils.deleteDirectory(dimensionFolder);
+				TCO.logger.info("Deleted DIM" + dimensionID + " on disk fully");
 			} catch (IOException e) {
 				e.printStackTrace();
 				if (player != null) {
@@ -288,9 +347,15 @@ public class DimensionHandler extends WorldSavedData
 					player.sendMessage(new TextComponentString("Completely deleted dimension " + dimensionID).setStyle(new Style().setColor(TextFormatting.GREEN)));
 				}
 			}
-
-			syncWithClients();
 		}
+	}
+
+	private File getDimensionFile(int dimensionID) {
+		return new File(DimensionManager.getCurrentSaveRootDirectory(), "DIM" + dimensionID);
+	}
+
+	private void copyRegionData(File src, File dest) {
+		copyFiles(new File(src, "region"), new File(dest, "region"));
 	}
 
 	private void syncWithClients() {
@@ -305,6 +370,12 @@ public class DimensionHandler extends WorldSavedData
 		}
 
 		return message;
+	}
+
+	public void save(String mapName, int id) {
+		File dest = getMapFile(mapName);
+		File src = getDimensionFile(id);
+		copyRegionData(src, dest);
 	}
 
 }

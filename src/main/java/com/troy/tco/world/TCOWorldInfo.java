@@ -16,13 +16,13 @@ public class TCOWorldInfo extends WorldInfo {
 	public TCOWorldInfo(NBTTagCompound nbt)
 	{
 		super(nbt);
-
 		superInfo = FMLCommonHandler.instance().getMinecraftServerInstance().getEntityWorld().getWorldInfo();
 	}
 
 	public TCOWorldInfo(WorldSettings settings, String name)
 	{
 		super(settings, name);
+		superInfo = FMLCommonHandler.instance().getMinecraftServerInstance().getEntityWorld().getWorldInfo();
 	}
 
 	@Override

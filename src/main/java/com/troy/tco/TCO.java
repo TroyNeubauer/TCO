@@ -11,6 +11,7 @@ import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
 import org.apache.logging.log4j.Logger;
 
 @Mod(modid = TCO.MODID, name = TCO.NAME, version = TCO.VERSION, acceptableRemoteVersions="*")
+@Mod.EventBusSubscriber(modid = TCO.MODID)
 public class TCO
 {
     public static final String MODID = "tco";
@@ -19,12 +20,14 @@ public class TCO
 
     public static Logger logger;
 
+    @Mod.Instance
+    public static TCO INSTANCE;
+
     @SidedProxy(clientSide="com.troy.tco.proxy.ClientProxy", serverSide="com.troy.tco.proxy.ServerProxy")
     public static IProxy proxy;
 
     @EventHandler
-    public void preInit(FMLPreInitializationEvent event)
-    {
+    public void preInit(FMLPreInitializationEvent event) {
         logger = event.getModLog();
         proxy.preInit(event);
     }
@@ -46,4 +49,5 @@ public class TCO
     {
         proxy.serverStarting(event);
     }
+
 }
