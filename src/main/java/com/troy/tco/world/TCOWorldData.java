@@ -23,10 +23,15 @@ public class TCOWorldData extends WorldSavedData {
 
 	private static final String DATA_NAME = TCO.MODID + "_GameData";
 
-	public TCOWorldData() {
-		super(DATA_NAME);
+	public TCOWorldData(String name) {
+		super(name);
 		this.parentID = null;
 		this.spawns = new ArrayList<>();
+	}
+
+	public TCOWorldData() {
+		this(DATA_NAME);
+		markDirty();
 	}
 
 	public TCOWorldData(TCOWorldData data, int parentID) {
@@ -38,10 +43,12 @@ public class TCOWorldData extends WorldSavedData {
 		this.maxPolice = data.maxPolice;
 		this.parentID = parentID;
 		this.spawns = new ArrayList<>(data.spawns);
+		this.markDirty();
 	}
 
 	@Override
 	public void readFromNBT(NBTTagCompound nbt) {
+		TCO.logger.trace("TCOWorldData::readFromNBT");
 		this.lobbySpawn = readVec(nbt, "lobbySpawn");
 		this.policeSpawn = readVec(nbt, "policeSpawn");
 		this.tcoSpawn = readVec(nbt, "tcoSpawn");
@@ -62,17 +69,26 @@ public class TCOWorldData extends WorldSavedData {
 	}
 
 	private void writeVec(NBTTagCompound nbt, Vector3f vec, String name) {
-		nbt.setFloat(name + "x", vec.x);
-		nbt.setFloat(name + "y", vec.y);
-		nbt.setFloat(name + "z", vec.z);
+		if (vec == null) {
+			nbt.setBoolean(name, true);
+		} else {
+			nbt.setFloat(name + "x", vec.x);
+			nbt.setFloat(name + "y", vec.y);
+			nbt.setFloat(name + "z", vec.z);
+		}
 	}
 
 	private Vector3f readVec(NBTTagCompound nbt, String name) {
-		return new Vector3f(nbt.getFloat(name + "x"), nbt.getFloat(name + "y"), nbt.getFloat(name + "z"));
+		if (nbt.hasKey(name) && nbt.getBoolean(name)) {
+			return null;
+		} else {
+			return new Vector3f(nbt.getFloat(name + "x"), nbt.getFloat(name + "y"), nbt.getFloat(name + "z"));
+		}
 	}
 
 	@Override
 	public NBTTagCompound writeToNBT(NBTTagCompound compound) {
+		TCO.logger.trace("TCOWorldData::writeToNBT");
 		NBTTagCompound result = new NBTTagCompound();
 		writeVec(result, this.lobbySpawn, "lobbySpawn");
 		writeVec(result, this.policeSpawn, "policeSpawn");
@@ -129,6 +145,7 @@ public class TCOWorldData extends WorldSavedData {
 
 	public void setLobbySpawn(Vector3f lobbySpawn) {
 		this.lobbySpawn = lobbySpawn;
+		this.markDirty();
 	}
 
 	public Vector3f getPoliceSpawn() {
@@ -137,6 +154,7 @@ public class TCOWorldData extends WorldSavedData {
 
 	public void setPoliceSpawn(Vector3f policeSpawn) {
 		this.policeSpawn = policeSpawn;
+		this.markDirty();
 	}
 
 	public Vector3f getTcoSpawn() {
@@ -145,6 +163,7 @@ public class TCOWorldData extends WorldSavedData {
 
 	public void setTcoSpawn(Vector3f tcoSpawn) {
 		this.tcoSpawn = tcoSpawn;
+		this.markDirty();
 	}
 
 	public ArrayList<Vector3f> getSpawns() {
@@ -153,6 +172,7 @@ public class TCOWorldData extends WorldSavedData {
 	
 	public void addSpawn(Vector3f pos) {
 		this.spawns.add(pos);
+		this.markDirty();
 	}
 
 	public boolean isTemplate() {

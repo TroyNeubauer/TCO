@@ -129,8 +129,7 @@ public class DimensionHandler extends WorldSavedData
 		createDimension(playerEntity, info, newDimID);
 
 		World world = playerEntity.getEntityWorld().getMinecraftServer().getWorld(newDimID);
-		TCO.logger.info("Got world " + world);
-		TCOWorldData.set(world, data);
+		TCOWorldData.set(world, new TCOWorldData(data, parentDimID));
 
 		return newDimID;
 	}

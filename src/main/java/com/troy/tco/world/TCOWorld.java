@@ -15,12 +15,10 @@ public class TCOWorld extends WorldServer {
 	private final WorldServer delegate;
 	private final IBorderListener borderListener;
 
-	public TCOWorld(WorldInfo worldInfo, MinecraftServer server, ISaveHandler saveHandlerIn, int dimensionId, WorldServer delegate, Profiler profilerIn)
-	{
+	public TCOWorld(WorldInfo worldInfo, MinecraftServer server, ISaveHandler saveHandlerIn, int dimensionId, WorldServer delegate, Profiler profilerIn) {
 		super(server, saveHandlerIn, worldInfo, dimensionId, profilerIn);
 		this.delegate = delegate;
-		this.borderListener = new IBorderListener()
-		{
+		this.borderListener = new IBorderListener() {
 			public void onSizeChanged(WorldBorder border, double newSize)
 			{
 				TCOWorld.this.getWorldBorder().setTransition(newSize);
@@ -56,13 +54,11 @@ public class TCOWorld extends WorldServer {
 	/**
 	 * Saves the chunks to disk.
 	 */
-	protected void saveLevel() throws MinecraftException
-	{
+	protected void saveLevel() throws MinecraftException {
 		this.perWorldStorage.saveAllData();
 	}
 
-	public World init()
-	{
+	public World init() {
 		this.mapStorage = this.delegate.getMapStorage();
 		this.worldScoreboard = this.delegate.getScoreboard();
 		this.lootTable = this.delegate.getLootTableManager();

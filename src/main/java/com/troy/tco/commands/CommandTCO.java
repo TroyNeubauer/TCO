@@ -258,7 +258,7 @@ public class CommandTCO extends CommandBase {
 		server.getPlayerList().transferPlayerToDimension(player, dimension, new TCOTeleport((WorldServer) server.getEntityWorld()));
 		if (data != null && data.getLobbySpawn() != null) {
 			TCO.logger.info("Moving player " + player.getName() + " to " + data.getLobbySpawn());
-			player.setPosition(data.getLobbySpawn().x, data.getLobbySpawn().y, data.getLobbySpawn().z);
+			player.setPositionAndUpdate(data.getLobbySpawn().x, data.getLobbySpawn().y, data.getLobbySpawn().z);
 		}
 	}
 
